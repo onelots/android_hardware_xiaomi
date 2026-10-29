@@ -15,6 +15,7 @@
  */
 
 #include "HalProxy.h"
+#include "RearLightSensor.h"
 
 #include <android/hardware/sensors/2.0/types.h>
 
@@ -27,6 +28,7 @@
 #include <cmath>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <thread>
 
 namespace android {
@@ -99,6 +101,28 @@ bool patchXiaomiPickupSensor(V2_1::SensorInfo& sensor) {
     sensor.maxRange = 1;
 
     return true;
+}
+
+/**
+ * Find the rear light sensor to drive along with a front light sensor.
+ *
+ * @param sensors The sensors to search.
+ * @param sensorHandle The handle of the sensor being configured.
+ *
+ * @return The rear light sensor handle, if sensorHandle is a front light sensor and one exists.
+ */
+std::optional<int32_t> findRearLightSensorFor(const std::map<int32_t, SensorInfo>& sensors,
+                                              int32_t sensorHandle) {
+    auto it = sensors.find(sensorHandle);
+    if (it == sensors.end() || !xiaomi::isFrontLightSensor(it->second)) {
+        return std::nullopt;
+    }
+    for (const auto& [handle, sensor] : sensors) {
+        if (xiaomi::isRearLightSensor(sensor)) {
+            return handle;
+        }
+    }
+    return std::nullopt;
 }
 
 HalProxy::HalProxy() {
@@ -181,6 +205,10 @@ Return<Result> HalProxy::setOperationMode(OperationMode mode) {
 Return<Result> HalProxy::activate(int32_t sensorHandle, bool enabled) {
     if (!isSubHalIndexValid(sensorHandle)) {
         return Result::BAD_VALUE;
+    }
+    if (auto rearLight = findRearLightSensorFor(mSensors, sensorHandle)) {
+        getSubHalForSensorHandle(*rearLight)->activate(clearSubHalIndex(*rearLight), enabled);
+        xiaomi::gRearLux = 0;
     }
     return getSubHalForSensorHandle(sensorHandle)
             ->activate(clearSubHalIndex(sensorHandle), enabled);
@@ -298,6 +326,10 @@ Return<Result> HalProxy::batch(int32_t sensorHandle, int64_t samplingPeriodNs,
                                int64_t maxReportLatencyNs) {
     if (!isSubHalIndexValid(sensorHandle)) {
         return Result::BAD_VALUE;
+    }
+    if (auto rearLight = findRearLightSensorFor(mSensors, sensorHandle)) {
+        getSubHalForSensorHandle(*rearLight)
+                ->batch(clearSubHalIndex(*rearLight), samplingPeriodNs, maxReportLatencyNs);
     }
     return getSubHalForSensorHandle(sensorHandle)
             ->batch(clearSubHalIndex(sensorHandle), samplingPeriodNs, maxReportLatencyNs);

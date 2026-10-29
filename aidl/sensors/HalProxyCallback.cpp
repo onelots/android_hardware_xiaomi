@@ -15,7 +15,9 @@
  */
 
 #include "HalProxyCallback.h"
+#include "RearLightSensor.h"
 
+#include <algorithm>
 #include <cinttypes>
 
 namespace android {
@@ -76,6 +78,12 @@ std::vector<V2_1::Event> HalProxyCallbackBase::processEvents(const std::vector<V
 
         if (sensor.type == V2_1::SensorType::PICK_UP_GESTURE && event.u.scalar != 1) {
             continue;
+        }
+
+        if (xiaomi::isRearLightSensor(sensor)) {
+            xiaomi::gRearLux = event.u.scalar;
+        } else if (xiaomi::isFrontLightSensor(sensor)) {
+            event.u.scalar = std::max(event.u.scalar, xiaomi::gRearLux.load());
         }
 
         if ((sensor.flags & V1_0::SensorFlagBits::WAKE_UP) != 0) {
